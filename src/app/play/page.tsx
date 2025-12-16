@@ -3446,13 +3446,45 @@ function PlayPageClient() {
             click: function () {
               if (!artPlayerRef.current) return;
 
-              // 如果已经在全屏状态，直接退出
+              // 检测是否在 PWA 模式下
+              const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
+                            window.matchMedia('(display-mode: fullscreen)').matches ||
+                            (window.navigator as any).standalone === true;
+
+              // 检查是否已经在原生全屏状态
+              const isInNativeFullscreen = document.fullscreenElement !== null;
+
+              // 如果已经在原生全屏状态，退出原生全屏
+              if (isInNativeFullscreen) {
+                document.exitFullscreen().catch((err: Error) => {
+                  console.error('退出全屏失败:', err);
+                });
+                return;
+              }
+
+              // 如果已经在网页全屏状态，退出网页全屏
               if (artPlayerRef.current.fullscreenWeb) {
                 artPlayerRef.current.fullscreenWeb = false;
                 return;
               }
 
-              // 创建对话框（使用项目统一风格）
+              // 如果在 PWA 模式下，直接使用容器全屏（可以隐藏状态栏）
+              if (isPWA) {
+                const container = artPlayerRef.current.template.$container;
+                if (container && container.requestFullscreen) {
+                  container.requestFullscreen().catch((err: Error) => {
+                    console.error('PWA 全屏失败:', err);
+                    // 如果失败，降级使用网页全屏
+                    artPlayerRef.current.fullscreenWeb = true;
+                  });
+                } else {
+                  // 不支持原生全屏，使用网页全屏
+                  artPlayerRef.current.fullscreenWeb = true;
+                }
+                return;
+              }
+
+              // 非 PWA 模式：创建对话框（使用项目统一风格）
               const dialog = document.createElement('div');
               dialog.className = 'ios-fullscreen-dialog';
               dialog.innerHTML = `
