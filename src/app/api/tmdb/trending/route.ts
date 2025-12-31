@@ -122,7 +122,7 @@ async function getTXBannerContent(): Promise<{ code: number; list: any[] }> {
       body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(15000),
     });
-
+	
     if (!response.ok) {
       console.error('TX API 请求失败:', response.status, response.statusText);
       return { code: response.status, list: [] };
@@ -153,22 +153,25 @@ function parseTXBannerData(data: any): any[] {
       return [];
     }
 
-    // 找到类型为 pc_shelves 的卡片
-    const pcShelvesCard = cardList.find((card: any) => card.type === 'pc_shelves');
-    if (!pcShelvesCard) {
+    // 找到所有类型为 pc_shelves 的卡片
+    const pcShelvesCards = cardList.filter((card: any) => card.type === 'pc_shelves');
+    if (pcShelvesCards.length === 0) {
       return [];
     }
 
-    // 获取轮播图卡片列表
-    const cards = pcShelvesCard?.children_list?.list?.cards;
-    if (!Array.isArray(cards)) {
-      return [];
-    }
+    // 尝试每个 pc_shelves 卡片，直到找到有效数据
+    for (let i = 0; i < pcShelvesCards.length; i++) {
+      const pcShelvesCard = pcShelvesCards[i];
+
+      const cards = pcShelvesCard?.children_list?.list?.cards;
+      if (!Array.isArray(cards) || cards.length === 0) {
+        continue;
+      }
 
     // 转换为统一格式
-    const bannerItems = cards
-      .filter((card: any) => card.params) // 只保留有params的卡片
-      .map((card: any, index: number) => {
+    const cardsWithParams = cards.filter((card: any) => card.params);
+
+    const mappedItems = cardsWithParams.map((card: any, index: number) => {
         const params = card.params;
 
         // 获取标题（优先使用title）
@@ -197,8 +200,9 @@ function parseTXBannerData(data: any): any[] {
           media_type: 'tv',
           genre_ids: [],
         };
-      })
-      .filter((item: any) => {
+      });
+
+      const bannerItems = mappedItems.filter((item: any) => {
         // 只保留有标题和背景图的项目
         if (!item.title || !item.backdrop_path) return false;
         // 剔除标题包含"免费合集"的数据
@@ -206,7 +210,13 @@ function parseTXBannerData(data: any): any[] {
         return true;
       });
 
-    return bannerItems;
+      if (bannerItems.length > 0) {
+        return bannerItems;
+      }
+    }
+
+    // 所有 pc_shelves 卡片都没有有效数据
+    return [];
   } catch (error) {
     console.error('解析 TX 轮播图数据失败:', error);
     return [];
