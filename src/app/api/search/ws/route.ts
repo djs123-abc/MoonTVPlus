@@ -41,6 +41,13 @@ export async function GET(request: NextRequest) {
     config.OpenListConfig?.Password
   );
 
+  // 检查是否配置了 Emby
+  const hasEmby = !!(
+    config.EmbyConfig?.Enabled &&
+    config.EmbyConfig?.ServerURL &&
+    config.EmbyConfig?.UserId
+  );
+
   // 共享状态
   let streamClosed = false;
 
@@ -70,7 +77,7 @@ export async function GET(request: NextRequest) {
       const startEvent = `data: ${JSON.stringify({
         type: 'start',
         query,
-        totalSources: apiSites.length + (hasOpenList ? 1 : 0),
+        totalSources: apiSites.length + (hasOpenList ? 1 : 0) + (hasEmby ? 1 : 0),
         timestamp: Date.now()
       })}\n\n`;
 
@@ -81,6 +88,75 @@ export async function GET(request: NextRequest) {
       // 记录已完成的源数量
       let completedSources = 0;
       const allResults: any[] = [];
+
+      // 搜索 Emby（如果配置了）
+      if (hasEmby) {
+        try {
+          const { EmbyClient } = await import('@/lib/emby.client');
+          const client = new EmbyClient(config.EmbyConfig!);
+
+          const searchResult = await client.getItems({
+            searchTerm: query,
+            IncludeItemTypes: 'Movie,Series',
+            Recursive: true,
+            Fields: 'Overview,ProductionYear',
+            Limit: 50,
+          });
+
+          const embyResults = searchResult.Items.map((item) => ({
+            id: item.Id,
+            source: 'emby',
+            source_name: 'Emby',
+            title: item.Name,
+            poster: client.getImageUrl(item.Id, 'Primary'),
+            episodes: [],
+            episodes_titles: [],
+            year: item.ProductionYear?.toString() || '',
+            desc: item.Overview || '',
+            type_name: item.Type === 'Movie' ? '电影' : '电视剧',
+            douban_id: 0,
+          }));
+
+          completedSources++;
+
+          if (!streamClosed) {
+            const sourceEvent = `data: ${JSON.stringify({
+              type: 'source_result',
+              source: 'emby',
+              sourceName: 'Emby',
+              results: embyResults,
+              timestamp: Date.now()
+            })}\n\n`;
+
+            if (!safeEnqueue(encoder.encode(sourceEvent))) {
+              streamClosed = true;
+              return;
+            }
+
+            if (embyResults.length > 0) {
+              allResults.push(...embyResults);
+            }
+          }
+        } catch (error) {
+          console.error('[Search WS] 搜索 Emby 失败:', error);
+          completedSources++;
+
+          if (!streamClosed) {
+            const errorEvent = `data: ${JSON.stringify({
+              type: 'source_error',
+              source: 'emby',
+              sourceName: 'Emby',
+              error: error instanceof Error ? error.message : '搜索失败',
+              timestamp: Date.now()
+            })}\n\n`;
+
+            if (!safeEnqueue(encoder.encode(errorEvent))) {
+              streamClosed = true;
+              return;
+            }
+          }
+        }
+      }
 
       // 搜索 OpenList（如果配置了）
       if (hasOpenList) {
@@ -254,7 +330,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 检查是否所有源都已完成
-        if (completedSources === apiSites.length + (hasOpenList ? 1 : 0)) {
+        if (completedSources === apiSites.length + (hasOpenList ? 1 : 0) + (hasEmby ? 1 : 0)) {
           if (!streamClosed) {
             // 发送最终完成事件
             const completeEvent = `data: ${JSON.stringify({

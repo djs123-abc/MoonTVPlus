@@ -5,23 +5,29 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
+import CapsuleSwitch from '@/components/CapsuleSwitch';
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
 
+type LibrarySource = 'openlist' | 'emby';
+
 interface Video {
   id: string;
-  folder: string;
-  tmdbId: number;
+  folder?: string;
+  tmdbId?: number;
   title: string;
   poster: string;
-  releaseDate: string;
-  overview: string;
-  voteAverage: number;
+  releaseDate?: string;
+  year?: string;
+  overview?: string;
+  voteAverage?: number;
+  rating?: number;
   mediaType: 'movie' | 'tv';
 }
 
 export default function PrivateLibraryPage() {
   const router = useRouter();
+  const [source, setSource] = useState<LibrarySource>('openlist');
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -29,16 +35,25 @@ export default function PrivateLibraryPage() {
   const [totalPages, setTotalPages] = useState(1);
   const pageSize = 20;
 
+  // 切换源时重置页码
+  useEffect(() => {
+    setPage(1);
+  }, [source]);
+
   useEffect(() => {
     fetchVideos();
-  }, [page]);
+  }, [page, source]);
 
   const fetchVideos = async () => {
     try {
       setLoading(true);
-      const response = await fetch(
-        `/api/openlist/list?page=${page}&pageSize=${pageSize}`
-      );
+      setError('');
+
+      const endpoint = source === 'openlist'
+        ? `/api/openlist/list?page=${page}&pageSize=${pageSize}`
+        : `/api/emby/list?page=${page}&pageSize=${pageSize}`;
+
+      const response = await fetch(endpoint);
 
       if (!response.ok) {
         throw new Error('获取视频列表失败');
@@ -63,8 +78,8 @@ export default function PrivateLibraryPage() {
   };
 
   const handleVideoClick = (video: Video) => {
-    // 跳转到播放页面，使用 id（key）而不是 folder
-    router.push(`/play?source=openlist&id=${encodeURIComponent(video.id)}`);
+    // 跳转到播放页面
+    router.push(`/play?source=${source}&id=${encodeURIComponent(video.id)}`);
   };
 
   return (
@@ -77,6 +92,18 @@ export default function PrivateLibraryPage() {
           <p className='text-sm text-gray-500 dark:text-gray-400 mt-1'>
             观看自我收藏的高清视频吧
           </p>
+        </div>
+
+        {/* 源切换器 */}
+        <div className='mb-6 flex justify-center'>
+          <CapsuleSwitch
+            options={[
+              { label: 'OpenList', value: 'openlist' },
+              { label: 'Emby', value: 'emby' }
+            ]}
+            active={source}
+            onChange={(value) => setSource(value as LibrarySource)}
+          />
         </div>
 
         {error && (
@@ -97,7 +124,9 @@ export default function PrivateLibraryPage() {
         ) : videos.length === 0 ? (
           <div className='text-center py-12'>
             <p className='text-gray-500 dark:text-gray-400'>
-              暂无视频，请在管理面板配置 OpenList 并刷新
+              {source === 'openlist'
+                ? '暂无视频，请在管理面板配置 OpenList 并刷新'
+                : '暂无视频，请在管理面板配置 Emby'}
             </p>
           </div>
         ) : (
@@ -107,12 +136,14 @@ export default function PrivateLibraryPage() {
                 <VideoCard
                   key={video.id}
                   id={video.id}
-                  source='openlist'
+                  source={source}
                   title={video.title}
                   poster={video.poster}
-                  year={video.releaseDate.split('-')[0]}
+                  year={video.year || (video.releaseDate ? video.releaseDate.split('-')[0] : '')}
                   rate={
-                    video.voteAverage && video.voteAverage > 0
+                    video.rating
+                      ? video.rating.toFixed(1)
+                      : video.voteAverage && video.voteAverage > 0
                       ? video.voteAverage.toFixed(1)
                       : ''
                   }

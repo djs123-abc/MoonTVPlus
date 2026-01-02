@@ -44,6 +44,46 @@ export async function GET(request: NextRequest) {
     config.OpenListConfig?.Password
   );
 
+  // 检查是否配置了 Emby
+  const hasEmby = !!(
+    config.EmbyConfig?.Enabled &&
+    config.EmbyConfig?.ServerURL &&
+    config.EmbyConfig?.UserId
+  );
+
+  // 搜索 Emby（如果配置了）
+  let embyResults: any[] = [];
+  if (hasEmby) {
+    try {
+      const { EmbyClient } = await import('@/lib/emby.client');
+      const client = new EmbyClient(config.EmbyConfig!);
+
+      const searchResult = await client.getItems({
+        searchTerm: query,
+        IncludeItemTypes: 'Movie,Series',
+        Recursive: true,
+        Fields: 'Overview,ProductionYear',
+        Limit: 50,
+      });
+
+      embyResults = searchResult.Items.map((item) => ({
+        id: item.Id,
+        source: 'emby',
+        source_name: 'Emby',
+        title: item.Name,
+        poster: client.getImageUrl(item.Id, 'Primary'),
+        episodes: [],
+        episodes_titles: [],
+        year: item.ProductionYear?.toString() || '',
+        desc: item.Overview || '',
+        type_name: item.Type === 'Movie' ? '电影' : '电视剧',
+        douban_id: 0,
+      }));
+    } catch (error) {
+      console.error('[Search] 搜索 Emby 失败:', error);
+    }
+  }
+
   // 搜索 OpenList（如果配置了）
   let openlistResults: any[] = [];
   if (hasOpenList) {
@@ -114,7 +154,7 @@ export async function GET(request: NextRequest) {
     const successResults = results
       .filter((result) => result.status === 'fulfilled')
       .map((result) => (result as PromiseFulfilledResult<any>).value);
-    let flattenedResults = [...openlistResults, ...successResults.flat()];
+    let flattenedResults = [...embyResults, ...openlistResults, ...successResults.flat()];
     if (!config.SiteConfig.DisableYellowFilter) {
       flattenedResults = flattenedResults.filter((result) => {
         const typeName = result.type_name || '';

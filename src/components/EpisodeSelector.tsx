@@ -270,7 +270,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         !optimizationEnabled || // 若关闭测速则直接退出
         activeTab !== 'sources' ||
         availableSources.length === 0 ||
-        currentSource === 'openlist' // 私人影库不进行测速
+        currentSource === 'openlist' || // 私人影库不进行测速
+        currentSource === 'emby' // Emby 不进行测速
       )
         return;
 
@@ -305,7 +306,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     // 当后台加载从 true 变为 false 时（即加载完成）
     if (prevBackgroundLoadingRef.current && !backgroundSourcesLoading) {
       // 如果当前选项卡在换源位置，触发测速
-      if (activeTab === 'sources' && optimizationEnabled && currentSource !== 'openlist') {
+      if (activeTab === 'sources' && optimizationEnabled && currentSource !== 'openlist' && currentSource !== 'emby') {
         // 筛选出尚未测速的播放源
         const pendingSources = availableSources.filter((source) => {
           const sourceKey = `${source.source}-${source.id}`;
@@ -888,8 +889,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                             </div>
                             {/* 重新测试按钮 */}
                             {(() => {
-                              // 私人影库不显示重新测试按钮
-                              if (source.source === 'openlist') {
+                              // 私人影库和 Emby 不显示重新测试按钮
+                              if (source.source === 'openlist' || source.source === 'emby') {
                                 return null;
                               }
 

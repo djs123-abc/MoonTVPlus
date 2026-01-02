@@ -155,6 +155,17 @@ export interface AdminConfig {
     MaxTokens?: number; // 最大回复token数，默认1000
     SystemPrompt?: string; // 自定义系统提示词
   };
+  EmbyConfig?: {
+    Enabled: boolean; // 是否启用Emby媒体库功能
+    ServerURL: string; // Emby服务器地址
+    ApiKey?: string; // API Key（推荐方式）
+    Username?: string; // 用户名（或使用API Key）
+    Password?: string; // 密码
+    UserId?: string; // 用户ID（登录后获取）
+    Libraries?: string[]; // 要显示的媒体库ID（可选，默认全部）
+    LastSyncTime?: number; // 最后同步时间戳
+    ItemCount?: number; // 媒体项数量
+  };
 }
 
 export interface AdminConfigResult {

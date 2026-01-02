@@ -1328,8 +1328,8 @@ function PlayPageClient() {
       !detailData.episodes ||
       episodeIndex >= detailData.episodes.length
     ) {
-      // openlist 源的剧集是懒加载的，如果 episodes 为空则跳过
-      if (detailData?.source === 'openlist' && (!detailData.episodes || detailData.episodes.length === 0)) {
+      // openlist 和 emby 源的剧集是懒加载的，如果 episodes 为空则跳过
+      if ((detailData?.source === 'openlist' || detailData?.source === 'emby') && (!detailData.episodes || detailData.episodes.length === 0)) {
         return;
       }
       setVideoUrl('');
@@ -2207,8 +2207,9 @@ function PlayPageClient() {
                     ? result.year.toLowerCase() === videoYearRef.current.toLowerCase()
                     : true) &&
                   (searchType
-                    ? // openlist 源跳过 episodes 长度检查，因为搜索时不返回详细播放列表
+                    ? // openlist 和 emby 源跳过 episodes 长度检查，因为搜索时不返回详细播放列表
                       result.source === 'openlist' ||
+                      result.source === 'emby' ||
                       (searchType === 'tv' && result.episodes.length > 1) ||
                       (searchType === 'movie' && result.episodes.length === 1)
                     : true)
@@ -2241,8 +2242,9 @@ function PlayPageClient() {
               ? result.year.toLowerCase() === videoYearRef.current.toLowerCase()
               : true) &&
             (searchType
-              ? // openlist 源跳过 episodes 长度检查，因为搜索时不返回详细播放列表
+              ? // openlist 和 emby 源跳过 episodes 长度检查，因为搜索时不返回详细播放列表
                 result.source === 'openlist' ||
+                result.source === 'emby' ||
                 (searchType === 'tv' && result.episodes.length > 1) ||
                 (searchType === 'movie' && result.episodes.length === 1)
               : true)
@@ -2327,9 +2329,9 @@ function PlayPageClient() {
         if (target) {
           detailData = target;
 
-          // 如果是 openlist 源且 episodes 为空，需要调用 detail 接口获取完整信息
-          if (detailData.source === 'openlist' && (!detailData.episodes || detailData.episodes.length === 0)) {
-            console.log('[Play] OpenList source has no episodes, fetching detail...');
+          // 如果是 openlist 或 emby 源且 episodes 为空，需要调用 detail 接口获取完整信息
+          if ((detailData.source === 'openlist' || detailData.source === 'emby') && (!detailData.episodes || detailData.episodes.length === 0)) {
+            console.log('[Play] OpenList/Emby source has no episodes, fetching detail...');
             const detailSources = await fetchSourceDetail(currentSource, currentId, searchTitle || videoTitle);
             if (detailSources.length > 0) {
               detailData = detailSources[0];
@@ -2350,14 +2352,25 @@ function PlayPageClient() {
         setLoadingStage('preferring');
         setLoadingMessage('⚡ 正在优选最佳播放源...');
 
-        detailData = await preferBestSource(sourcesInfo);
+        // 过滤掉 openlist 和 emby 源，它们不参与测速
+        const sourcesToTest = sourcesInfo.filter(s => s.source !== 'openlist' && s.source !== 'emby');
+        const excludedSources = sourcesInfo.filter(s => s.source === 'openlist' || s.source === 'emby');
+
+        if (sourcesToTest.length > 0) {
+          detailData = await preferBestSource(sourcesToTest);
+        } else if (excludedSources.length > 0) {
+          // 如果只有 openlist/emby 源，直接使用第一个
+          detailData = excludedSources[0];
+        } else {
+          detailData = sourcesInfo[0];
+        }
       }
 
       console.log(detailData.source, detailData.id);
 
-      // 如果是 openlist 源且 episodes 为空，需要调用 detail 接口获取完整信息
-      if (detailData.source === 'openlist' && (!detailData.episodes || detailData.episodes.length === 0)) {
-        console.log('[Play] OpenList source has no episodes after selection, fetching detail...');
+      // 如果是 openlist 或 emby 源且 episodes 为空，需要调用 detail 接口获取完整信息
+      if ((detailData.source === 'openlist' || detailData.source === 'emby') && (!detailData.episodes || detailData.episodes.length === 0)) {
+        console.log('[Play] OpenList/Emby source has no episodes after selection, fetching detail...');
         const detailSources = await fetchSourceDetail(detailData.source, detailData.id, detailData.title || videoTitleRef.current);
         if (detailSources.length > 0) {
           detailData = detailSources[0];
@@ -2498,6 +2511,68 @@ function PlayPageClient() {
     }
   }, [searchParams, currentSource, currentId, availableSources, currentEpisodeIndex]);
 
+  // 监听 detail 和 currentEpisodeIndex 变化，动态更新字幕
+  useEffect(() => {
+    if (!artPlayerRef.current || !detail) return;
+
+    const currentSubtitles = detail.subtitles?.[currentEpisodeIndex] || [];
+    const savedSubtitleSize = typeof window !== 'undefined' ? localStorage.getItem('subtitleSize') || '2em' : '2em';
+
+    // 如果有字幕，更新播放器字幕
+    if (currentSubtitles.length > 0) {
+      artPlayerRef.current.subtitle.switch(currentSubtitles[0].url, {
+        type: 'vtt',
+        style: {
+          color: '#fff',
+          fontSize: savedSubtitleSize,
+        },
+        encoding: 'utf-8',
+      });
+
+      // 移除旧的字幕设置，添加新的
+      try {
+        artPlayerRef.current.setting.remove('subtitle-selector');
+      } catch (e) {
+        // 忽略错误，可能设置项不存在
+      }
+
+      const subtitleOptions = [
+        { html: '关闭', url: '' },
+        ...currentSubtitles.map((sub: any) => ({
+          html: sub.label,
+          url: sub.url,
+        })),
+      ];
+
+      artPlayerRef.current.setting.add({
+        name: 'subtitle-selector',
+        html: '字幕',
+        selector: subtitleOptions,
+        onSelect: function (item: any) {
+          if (artPlayerRef.current) {
+            if (item.url === '') {
+              artPlayerRef.current.subtitle.show = false;
+            } else {
+              artPlayerRef.current.subtitle.switch(item.url, {
+                name: item.html,
+              });
+              artPlayerRef.current.subtitle.show = true;
+            }
+          }
+          return item.html;
+        },
+      });
+    } else {
+      // 没有字幕时，隐藏字幕并移除字幕设置
+      artPlayerRef.current.subtitle.show = false;
+      try {
+        artPlayerRef.current.setting.remove('subtitle-selector');
+      } catch (e) {
+        // 忽略错误，可能设置项不存在
+      }
+    }
+  }, [detail, currentEpisodeIndex]);
+
   // 处理换源
   const handleSourceChange = async (
     newSource: string,
@@ -2548,8 +2623,8 @@ function PlayPageClient() {
         return;
       }
 
-      // 如果是 openlist 源且 episodes 为空，需要调用 detail 接口获取完整信息
-      if (newDetail.source === 'openlist' && (!newDetail.episodes || newDetail.episodes.length === 0)) {
+      // 如果是 openlist 或 emby 源且 episodes 为空，需要调用 detail 接口获取完整信息
+      if ((newDetail.source === 'openlist' || newDetail.source === 'emby') && (!newDetail.episodes || newDetail.episodes.length === 0)) {
         try {
           const detailResponse = await fetch(`/api/source-detail?source=${newSource}&id=${newId}&title=${encodeURIComponent(newTitle)}`);
           if (detailResponse.ok) {
@@ -3479,8 +3554,8 @@ function PlayPageClient() {
       return;
     }
 
-    // openlist 源的剧集是懒加载的，如果 episodes 为空则跳过检查
-    if ((currentSource === 'openlist' || detail?.source === 'openlist') && (!detail || !detail.episodes || detail.episodes.length === 0)) {
+    // openlist 和 emby 源的剧集是懒加载的，如果 episodes 为空则跳过检查
+    if ((currentSource === 'openlist' || currentSource === 'emby' || detail?.source === 'openlist' || detail?.source === 'emby') && (!detail || !detail.episodes || detail.episodes.length === 0)) {
       return;
     }
 
@@ -3595,6 +3670,10 @@ function PlayPageClient() {
         Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
         Artplayer.USE_RAF = true;
 
+        // 获取当前集的字幕
+        const currentSubtitles = detail?.subtitles?.[currentEpisodeIndex] || [];
+        const savedSubtitleSize = typeof window !== 'undefined' ? localStorage.getItem('subtitleSize') || '2em' : '2em';
+
         artPlayerRef.current = new Artplayer({
           container: artRef.current!,
         url: videoUrl,
@@ -3614,6 +3693,17 @@ function PlayPageClient() {
         aspectRatio: false,
         fullscreen: !isIOS,  // iOS 禁用原生全屏按钮，避免触发系统播放器
         fullscreenWeb: true,  // 保留网页全屏按钮（所有平台）
+        ...(currentSubtitles.length > 0 ? {
+          subtitle: {
+            url: currentSubtitles[0].url,
+            type: 'vtt',
+            style: {
+              color: '#fff',
+              fontSize: savedSubtitleSize,
+            },
+            encoding: 'utf-8',
+          }
+        } : {}),
         subtitleOffset: false,
         miniProgressBar: false,
         mutex: true,
@@ -4531,6 +4621,70 @@ function PlayPageClient() {
         // 标记播放器已就绪，触发 usePlaySync 设置事件监听器
         setPlayerReady(true);
         console.log('[PlayPage] Player ready, triggering sync setup');
+
+        // 添加字幕切换功能
+        const currentSubtitles = detail?.subtitles?.[currentEpisodeIndex] || [];
+        if (currentSubtitles.length > 0 && artPlayerRef.current) {
+          const subtitleOptions = [
+            {
+              html: '关闭',
+              url: '',
+            },
+            ...currentSubtitles.map((sub: any) => ({
+              html: sub.label,
+              url: sub.url,
+            })),
+          ];
+
+          artPlayerRef.current.setting.add({
+            html: '字幕',
+            selector: subtitleOptions,
+            onSelect: function (item: any) {
+              if (artPlayerRef.current) {
+                if (item.url === '') {
+                  // 关闭字幕
+                  artPlayerRef.current.subtitle.show = false;
+                } else {
+                  // 切换字幕
+                  artPlayerRef.current.subtitle.switch(item.url, {
+                    name: item.html,
+                  });
+                  artPlayerRef.current.subtitle.show = true;
+                }
+              }
+              return item.html;
+            },
+          });
+        }
+
+        // 添加字幕大小设置
+        if (artPlayerRef.current) {
+          const savedSubtitleSize = typeof window !== 'undefined' ? localStorage.getItem('subtitleSize') || '2em' : '2em';
+          const defaultOption = savedSubtitleSize === '1em' ? '小' : savedSubtitleSize === '3em' ? '大' : savedSubtitleSize === '4em' ? '超大' : '中';
+
+          artPlayerRef.current.setting.add({
+            html: '字幕大小',
+            selector: [
+              { html: '小', size: '1em' },
+              { html: '中', size: '2em' },
+              { html: '大', size: '3em' },
+              { html: '超大', size: '4em' },
+            ],
+            onSelect: function (item: any) {
+              if (artPlayerRef.current) {
+                artPlayerRef.current.subtitle.style({
+                  fontSize: item.size,
+                });
+                // 保存到 localStorage
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('subtitleSize', item.size);
+                }
+              }
+              return item.html;
+            },
+            default: defaultOption,
+          });
+        }
 
         // 控制截图按钮在小屏幕竖屏时隐藏
         const updateScreenshotVisibility = () => {
