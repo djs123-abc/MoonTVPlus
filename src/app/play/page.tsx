@@ -6200,7 +6200,7 @@ function PlayPageClient() {
 
             // 使用轮询机制等待弹幕插件准备好（替代固定延迟）
             let pollAttempts = 0;
-            const maxPollAttempts = 60; // 最多尝试 60 次（30 秒）
+            const maxPollAttempts = 120; // 最多尝试 120 次（60 秒）
             const pollInterval = 500; // 每 500ms 检查一次
 
             const pollForDanmakuPlugin = () => {
