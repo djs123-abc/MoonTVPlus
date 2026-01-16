@@ -29,7 +29,7 @@ ENV DOCKER_ENV=true
 RUN pnpm run build
 
 # 使用 pnpm deploy 提取生产依赖到独立目录
-RUN pnpm deploy --filter=. --prod /tmp/prod-deps
+RUN pnpm deploy --filter=. --prod --legacy /tmp/prod-deps
 
 # ---- 第 3 阶段：生成运行时镜像 ----
 FROM node:24-alpine AS runner
